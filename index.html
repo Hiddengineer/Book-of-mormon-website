@@ -76,9 +76,9 @@
         const pdfjsLib = window['pdfjsLib'];
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
     
-        // Use this renderPage function
+        // Render a single page on the given canvas
         function renderPage(canvas, pdf, pageNumber, callback) {
-            pdf.getPage(pageNumber).then(function(page) {
+            pdf.getPage(pageNumber).then(function (page) {
                 const scale = 1.5;
                 const viewport = page.getViewport({ scale: scale });
     
@@ -95,23 +95,47 @@
             });
         }
     
+        // Lazy-load PDF rendering
         async function renderPDF(pdfURL, containerId) {
             const container = document.getElementById(containerId);
-            container.innerHTML = ''; // Clear the container
+            container.innerHTML = ''; // Clear previous
     
             try {
                 const loadingTask = pdfjsLib.getDocument(pdfURL);
                 const pdf = await loadingTask.promise;
     
+                const canvasElements = [];
+    
                 for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
                     const canvas = document.createElement("canvas");
+                    canvas.dataset.pageNumber = pageNum;
+                    canvas.style.minHeight = "100px"; // Reserve space
+                    canvasElements.push(canvas);
                     container.appendChild(canvas);
-    
-                    renderPage(canvas, pdf, pageNum, function () {
-                        // Optional: You could log or show progress here
-                        console.log(`Page ${pageNum} rendered for ${pdfURL}`);
-                    });
                 }
+    
+                const observer = new IntersectionObserver((entries) => {
+                    entries.forEach(entry => {
+                        if (entry.isIntersecting) {
+                            const canvas = entry.target;
+                            const pageNumber = parseInt(canvas.dataset.pageNumber);
+    
+                            if (!canvas.dataset.rendered) {
+                                canvas.dataset.rendered = "true";
+                                renderPage(canvas, pdf, pageNumber, () => {
+                                    // Optional callback
+                                    // console.log(`Page ${pageNumber} rendered`);
+                                });
+                            }
+                        }
+                    });
+                }, {
+                    root: container,
+                    rootMargin: "200px", // Preload before it scrolls into view
+                    threshold: 0.1
+                });
+    
+                canvasElements.forEach(canvas => observer.observe(canvas));
             } catch (error) {
                 console.error("Error loading PDF:", error);
                 container.innerHTML = '<p style="color: red;">Failed to load PDF.</p>';
@@ -120,7 +144,7 @@
     
         function rebuildContainers() {
             let wrapper = document.getElementById('pdfWrapper');
-            wrapper.innerHTML = ''; // Completely clear the container
+            wrapper.innerHTML = '';
     
             for (let i = 1; i <= 3; i++) {
                 let container = document.createElement("div");
@@ -131,13 +155,13 @@
         }
     
         function updatePDFs() {
-            rebuildContainers(); // Completely refresh the containers
+            rebuildContainers();
     
             renderPDF(document.getElementById('language1').value, 'pdfContainer1');
             renderPDF(document.getElementById('language2').value, 'pdfContainer2');
             renderPDF(document.getElementById('language3').value, 'pdfContainer3');
     
-            setupScrollSync(); // Re-apply scroll synchronization
+            setupScrollSync();
         }
     
         document.getElementById('language1').addEventListener('change', updatePDFs);
@@ -170,6 +194,7 @@
             isSyncing = !isSyncing;
             this.textContent = isSyncing ? 'Disable Synchronized Scrolling' : 'Enable Synchronized Scrolling';
         });
-    </script>    
+    </script>
+     
 </body>
 </html>
