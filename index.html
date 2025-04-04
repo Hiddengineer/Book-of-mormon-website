@@ -12,6 +12,7 @@
         canvas { width: 100%; display: block; }
         button { margin-top: 20px; padding: 10px; background-color: #4CAF50; color: white; border: none; cursor: pointer; }
         button:hover { background-color: #45a049; }
+        .loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
     </style>
 </head>
 <body>
@@ -31,7 +32,6 @@
         <option value="BookOfMormonPDFs/Swedish.pdf">Swedish</option>
         <option value="BookOfMormonPDFs/Chinese(simplified).pdf">Chinese (Simplified)</option>
         <option value="BookOfMormonPDFs/Chinese(Traditional).pdf">Chinese (Traditional)</option>
-        
     </select>
     
     <label for="language2">Select Language 2:</label>
@@ -48,7 +48,6 @@
         <option value="BookOfMormonPDFs/Swedish.pdf">Swedish</option>
         <option value="BookOfMormonPDFs/Chinese(simplified).pdf">Chinese (Simplified)</option>
         <option value="BookOfMormonPDFs/Chinese(Traditional).pdf">Chinese (Traditional)</option>
-        
     </select>
     
     <label for="language3">Select Language 3:</label>
@@ -62,139 +61,175 @@
         <option value="BookOfMormonPDFs/Korean.pdf">Korean</option>
         <option value="BookOfMormonPDFs/Italian.pdf">Italian</option>
         <option value="BookOfMormonPDFs/Russian.pdf">Russian</option>
-        <option value="BookOfMormonPDFs/Swedish.pdf">Swedish</option>
+        <option value="BookOfMormonPDFs/S doors.pdf">Swedish</option>
         <option value="BookOfMormonPDFs/Chinese(simplified).pdf">Chinese (Simplified)</option>
         <option value="BookOfMormonPDFs/Chinese(Traditional).pdf">Chinese (Traditional)</option>
-        
     </select>
     
     <div id="pdfWrapper" class="container"></div>
-
     <button id="toggleScroll">Disable Synchronized Scrolling</button>
     
     <script>
         const pdfjsLib = window['pdfjsLib'];
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
-    
-        // Render a single page on the given canvas
-        function renderPage(canvas, pdf, pageNumber, callback) {
-            pdf.getPage(pageNumber).then(function (page) {
-                const scale = 1.5;
-                const viewport = page.getViewport({ scale: scale });
-    
-                const context = canvas.getContext('2d');
-                canvas.width = viewport.width;
-                canvas.height = viewport.height;
-    
-                const renderContext = {
-                    canvasContext: context,
-                    viewport: viewport
-                };
-    
-                page.render(renderContext).promise.then(callback);
-            });
-        }
-    
-        // Lazy-load PDF rendering
-        async function renderPDF(pdfURL, containerId) {
-            const container = document.getElementById(containerId);
-            container.innerHTML = ''; // Clear previous
-    
-            try {
-                const loadingTask = pdfjsLib.getDocument(pdfURL);
-                const pdf = await loadingTask.promise;
-    
-                const canvasElements = [];
-    
-                for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-                    const canvas = document.createElement("canvas");
-                    canvas.dataset.pageNumber = pageNum;
-                    canvas.style.minHeight = "100px"; // Reserve space
-                    canvasElements.push(canvas);
-                    container.appendChild(canvas);
+
+        class PDFLazyLoader {
+            constructor(pdfUrl, containerId) {
+                this.pdfUrl = pdfUrl;
+                this.containerId = containerId;
+                this.pdfDoc = null;
+                this.canvasElements = [];
+                this.observer = null;
+                this.isLoading = false;
+                this.loadPDF();
+            }
+
+            async loadPDF() {
+                const container = document.getElementById(this.containerId);
+                container.innerHTML = '<div class="loading">Loading PDF...</div>';
+
+                try {
+                    const loadingTask = pdfjsLib.getDocument(this.pdfUrl);
+                    this.pdfDoc = await loadingTask.promise;
+                    container.innerHTML = '';
+
+                    // Pre-calculate viewport sizes for better scroll experience
+                    const firstPage = await this.pdfDoc.getPage(1);
+                    const scale = 1.5;
+                    const viewport = firstPage.getViewport({ scale });
+                    
+                    for (let pageNum = 1; pageNum <= this.pdfDoc.numPages; pageNum++) {
+                        const canvas = document.createElement("canvas");
+                        canvas.dataset.pageNumber = pageNum;
+                        canvas.style.minHeight = `${viewport.height}px`; // Reserve exact space
+                        this.canvasElements.push(canvas);
+                        container.appendChild(canvas);
+                    }
+
+                    this.setupObserver();
+                } catch (error) {
+                    console.error('Error loading PDF:', error);
+                    container.innerHTML = '<p style="color: red;">Failed to load PDF.</p>';
                 }
-    
-                const observer = new IntersectionObserver((entries) => {
-                    entries.forEach(entry => {
-                        if (entry.isIntersecting) {
+            }
+
+            setupObserver() {
+                this.observer = new IntersectionObserver((entries) => {
+                    entries.forEach(async entry => {
+                        if (entry.isIntersecting && !this.isLoading) {
                             const canvas = entry.target;
                             const pageNumber = parseInt(canvas.dataset.pageNumber);
-    
+
                             if (!canvas.dataset.rendered) {
-                                canvas.dataset.rendered = "true";
-                                renderPage(canvas, pdf, pageNumber, () => {
-                                    // Optional callback
-                                    // console.log(`Page ${pageNumber} rendered`);
-                                });
+                                this.isLoading = true;
+                                await this.renderPage(canvas, pageNumber);
+                                this.isLoading = false;
                             }
                         }
                     });
                 }, {
-                    root: container,
-                    rootMargin: "200px", // Preload before it scrolls into view
+                    root: document.getElementById(this.containerId),
+                    rootMargin: "200px",
                     threshold: 0.1
                 });
-    
-                canvasElements.forEach(canvas => observer.observe(canvas));
-            } catch (error) {
-                console.error("Error loading PDF:", error);
-                container.innerHTML = '<p style="color: red;">Failed to load PDF.</p>';
+
+                this.canvasElements.forEach(canvas => this.observer.observe(canvas));
+            }
+
+            async renderPage(canvas, pageNumber) {
+                try {
+                    const page = await this.pdfDoc.getPage(pageNumber);
+                    const scale = 1.5;
+                    const viewport = page.getViewport({ scale });
+                    const context = canvas.getContext('2d');
+
+                    canvas.width = viewport.width;
+                    canvas.height = viewport.height;
+                    canvas.dataset.rendered = "true";
+
+                    const renderContext = {
+                        canvasContext: context,
+                        viewport: viewport
+                    };
+
+                    await page.render(renderContext).promise;
+                } catch (error) {
+                    console.error(`Error rendering page ${pageNumber}:`, error);
+                }
+            }
+
+            destroy() {
+                if (this.observer) {
+                    this.observer.disconnect();
+                }
+                if (this.pdfDoc) {
+                    this.pdfDoc.destroy();
+                }
             }
         }
-    
+
         function rebuildContainers() {
-            let wrapper = document.getElementById('pdfWrapper');
+            const wrapper = document.getElementById('pdfWrapper');
             wrapper.innerHTML = '';
-    
             for (let i = 1; i <= 3; i++) {
-                let container = document.createElement("div");
+                const container = document.createElement("div");
                 container.id = `pdfContainer${i}`;
                 container.className = "pdf-container";
                 wrapper.appendChild(container);
             }
         }
-    
+
+        let pdfLoaders = [];
+
         function updatePDFs() {
+            // Clean up previous loaders
+            pdfLoaders.forEach(loader => loader.destroy());
+            pdfLoaders = [];
             rebuildContainers();
-    
-            renderPDF(document.getElementById('language1').value, 'pdfContainer1');
-            renderPDF(document.getElementById('language2').value, 'pdfContainer2');
-            renderPDF(document.getElementById('language3').value, 'pdfContainer3');
-    
+
+            pdfLoaders.push(new PDFLazyLoader(
+                document.getElementById('language1').value, 'pdfContainer1'
+            ));
+            pdfLoaders.push(new PDFLazyLoader(
+                document.getElementById('language2').value, 'pdfContainer2'
+            ));
+            pdfLoaders.push(new PDFLazyLoader(
+                document.getElementById('language3').value, 'pdfContainer3'
+            ));
+
             setupScrollSync();
         }
-    
+
         document.getElementById('language1').addEventListener('change', updatePDFs);
         document.getElementById('language2').addEventListener('change', updatePDFs);
         document.getElementById('language3').addEventListener('change', updatePDFs);
-    
+
         window.onload = updatePDFs;
-    
+
         // Scroll synchronization logic
         let isSyncing = true;
-    
+
         function syncScroll(event) {
             if (!isSyncing) return;
-            let scrollTop = event.target.scrollTop;
+            const scrollTop = event.target.scrollTop;
             document.querySelectorAll('.pdf-container').forEach(container => {
                 if (container !== event.target) {
                     container.scrollTop = scrollTop;
                 }
             });
         }
-    
+
         function setupScrollSync() {
             document.querySelectorAll('.pdf-container').forEach(container => {
                 container.removeEventListener('scroll', syncScroll);
                 container.addEventListener('scroll', syncScroll);
             });
         }
-    
-        document.getElementById('toggleScroll').addEventListener('click', function () {
+
+        document.getElementById('toggleScroll').addEventListener('click', function() {
             isSyncing = !isSyncing;
             this.textContent = isSyncing ? 'Disable Synchronized Scrolling' : 'Enable Synchronized Scrolling';
         });
     </script>
-     
 </body>
 </html>
