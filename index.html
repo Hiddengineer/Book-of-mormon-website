@@ -75,13 +75,53 @@
     <script>
         const pdfjsLib = window['pdfjsLib'];
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
-        PDFJS.disableAutoFetch = (PDFJS.disableAutoFetch === undefined ? false : PDFJS.disableAutoFetch); 
-
-
+    
+        // Use this renderPage function
+        function renderPage(canvas, pdf, pageNumber, callback) {
+            pdf.getPage(pageNumber).then(function(page) {
+                const scale = 1.5;
+                const viewport = page.getViewport({ scale: scale });
+    
+                const context = canvas.getContext('2d');
+                canvas.width = viewport.width;
+                canvas.height = viewport.height;
+    
+                const renderContext = {
+                    canvasContext: context,
+                    viewport: viewport
+                };
+    
+                page.render(renderContext).promise.then(callback);
+            });
+        }
+    
+        async function renderPDF(pdfURL, containerId) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = ''; // Clear the container
+    
+            try {
+                const loadingTask = pdfjsLib.getDocument(pdfURL);
+                const pdf = await loadingTask.promise;
+    
+                for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                    const canvas = document.createElement("canvas");
+                    container.appendChild(canvas);
+    
+                    renderPage(canvas, pdf, pageNum, function () {
+                        // Optional: You could log or show progress here
+                        console.log(`Page ${pageNum} rendered for ${pdfURL}`);
+                    });
+                }
+            } catch (error) {
+                console.error("Error loading PDF:", error);
+                container.innerHTML = '<p style="color: red;">Failed to load PDF.</p>';
+            }
+        }
+    
         function rebuildContainers() {
             let wrapper = document.getElementById('pdfWrapper');
             wrapper.innerHTML = ''; // Completely clear the container
-
+    
             for (let i = 1; i <= 3; i++) {
                 let container = document.createElement("div");
                 container.id = `pdfContainer${i}`;
@@ -89,53 +129,26 @@
                 wrapper.appendChild(container);
             }
         }
-
-        async function renderPDF(pdfURL, containerId) {
-            const container = document.getElementById(containerId);
-            container.innerHTML = ''; // Clear the container
-
-            try {
-                const loadingTask = pdfjsLib.getDocument(pdfURL);
-                const pdf = await loadingTask.promise;
-
-                for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-                    const page = await pdf.getPage(pageNum);
-                    const canvas = document.createElement("canvas");
-                    container.appendChild(canvas);
-
-                    const viewport = page.getViewport({ scale: 1.5 });
-                    canvas.height = viewport.height;
-                    canvas.width = viewport.width;
-
-                    const context = canvas.getContext('2d');
-                    const renderContext = { canvasContext: context, viewport: viewport };
-                    await page.render(renderContext).promise;
-                }
-            } catch (error) {
-                console.error("Error loading PDF:", error);
-                container.innerHTML = '<p style="color: red;">Failed to load PDF.</p>';
-            }
-        }
-
+    
         function updatePDFs() {
             rebuildContainers(); // Completely refresh the containers
-
+    
             renderPDF(document.getElementById('language1').value, 'pdfContainer1');
             renderPDF(document.getElementById('language2').value, 'pdfContainer2');
             renderPDF(document.getElementById('language3').value, 'pdfContainer3');
-
+    
             setupScrollSync(); // Re-apply scroll synchronization
         }
-
+    
         document.getElementById('language1').addEventListener('change', updatePDFs);
         document.getElementById('language2').addEventListener('change', updatePDFs);
         document.getElementById('language3').addEventListener('change', updatePDFs);
-
+    
         window.onload = updatePDFs;
-
+    
         // Scroll synchronization logic
         let isSyncing = true;
-
+    
         function syncScroll(event) {
             if (!isSyncing) return;
             let scrollTop = event.target.scrollTop;
@@ -145,18 +158,18 @@
                 }
             });
         }
-
+    
         function setupScrollSync() {
             document.querySelectorAll('.pdf-container').forEach(container => {
                 container.removeEventListener('scroll', syncScroll);
                 container.addEventListener('scroll', syncScroll);
             });
         }
-
-        document.getElementById('toggleScroll').addEventListener('click', function() {
+    
+        document.getElementById('toggleScroll').addEventListener('click', function () {
             isSyncing = !isSyncing;
             this.textContent = isSyncing ? 'Disable Synchronized Scrolling' : 'Enable Synchronized Scrolling';
         });
-    </script>
+    </script>    
 </body>
 </html>
